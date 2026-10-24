@@ -6,8 +6,7 @@ import com.qualcomm.robotcore.util.Range;
 
 /**
  * Class to control intake functionality for the BioBuzz season.
- * Currently configured to simply take balls in.
- * Needs to be configured with all internals as well.
+ * Runs the intake forward to collect balls or backward to clear them.
  */
 @SuppressWarnings("unused")
 public class Intake {
@@ -20,14 +19,25 @@ public class Intake {
 
     public Intake(HardwareMap hardwareMap) {
         this.intakeMotor = hardwareMap.get(DcMotorEx.class, "intakeMotor");
+        stop();
+        intakeMotor.setMode(DcMotorEx.RunMode.RUN_WITHOUT_ENCODER);
+        intakeMotor.setZeroPowerBehavior(DcMotorEx.ZeroPowerBehavior.BRAKE);
     }
 
     /**
-     * Updates the intake state. 
-     * Finisher can add logic to use vision for automated collection.
+     * Runs the intake while requested, otherwise stops it.
      */
     public void update(boolean run) {
-        if (run) {
+        update(run, false);
+    }
+
+    /**
+     * Updates the intake state. Reverse takes priority over collection.
+     */
+    public void update(boolean run, boolean reverse) {
+        if (reverse) {
+            outtake();
+        } else if (run) {
             intake();
         } else {
             stop();
@@ -42,9 +52,17 @@ public class Intake {
     }
 
     /**
+     * Runs the intake backward to release balls or clear a jam.
+     */
+    public void outtake() {
+        setPower(-INTAKE_POWER);
+    }
+
+    /**
      * Sets the power of the intake motor.
      */
     public void setPower(double power) {
+        if (!Double.isFinite(power)) power = 0;
         intakeMotor.setPower(Range.clip(power, -MAX_POWER, MAX_POWER));
     }
 

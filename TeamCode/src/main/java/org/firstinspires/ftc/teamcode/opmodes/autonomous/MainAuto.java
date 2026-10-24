@@ -24,12 +24,16 @@ public abstract class MainAuto extends LinearOpMode {
 
     @Override
     public void runOpMode() {
-        setup(getDefaultAlliance(), getStartPose());
+        try {
+            setup(getDefaultAlliance(), getStartPose());
 
-        waitForStart();
-        if (!opModeIsActive()) return;
+            waitForStart();
+            if (!opModeIsActive()) return;
 
-        run();
+            run();
+        } finally {
+            if (robot != null) robot.stopAll();
+        }
     }
 
     protected void setup(Alliance alliance, Pose2d startPose) {

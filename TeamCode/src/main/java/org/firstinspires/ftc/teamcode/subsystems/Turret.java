@@ -7,9 +7,6 @@ import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.util.Range;
 
 import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
-import org.firstinspires.ftc.vision.apriltag.AprilTagSingleDetection;
-
-import java.util.List;
 
 /**
  * Class to control turret aiming toward AprilTags using a continuously rotating servo.
@@ -29,18 +26,27 @@ public class Turret {
     public Turret(HardwareMap hardwareMap, Vision vision) {
         this.turretServo = hardwareMap.get(CRServo.class, "turretServo");
         this.vision = vision;
+        stop();
     }
 
     /**
      * Updates the turret power to aim at a specific AprilTag ID using detections from Vision.
      *
-     * @param targetId The ID of the AprilTag to track (e.g., center of a Cell cluster).
+     * @param targetId The ID of the AprilTag to track.
      */
     public void update(int targetId) {
-        List<AprilTagDetection> detections = vision.getDetections();
-        AprilTagDetection target = findDetectionById(detections, targetId);
+        aimAt(vision.getTag(targetId));
+    }
 
-        if (target != null && target.ftcPose != null) {
+    /**
+     * Aims at the center of the named Cell cluster.
+     */
+    public void update(String clusterName) {
+        aimAt(vision.getCluster(clusterName));
+    }
+
+    private void aimAt(@Nullable AprilTagDetection target) {
+        if (target != null) {
             // bearing is the horizontal angle to the tag in degrees
             double bearing = target.ftcPose.bearing;
 
@@ -61,6 +67,7 @@ public class Turret {
      * Sets the power of the turret servo.
      */
     public void setPower(double power) {
+        if (!Double.isFinite(power)) power = 0;
         turretServo.setPower(Range.clip(power, -MAX_POWER, MAX_POWER));
     }
 
@@ -69,19 +76,5 @@ public class Turret {
      */
     public void stop() {
         turretServo.setPower(0);
-    }
-
-    /**
-     * Helper to find a specific tag by ID in the list of detections.
-     */
-    private @Nullable AprilTagDetection findDetectionById(List<AprilTagDetection> detections, int id) {
-        for (AprilTagDetection detection : detections) {
-            if (detection instanceof AprilTagSingleDetection) {
-                if (((AprilTagSingleDetection) detection).id == id) {
-                    return detection;
-                }
-            }
-        }
-        return null;
     }
 }

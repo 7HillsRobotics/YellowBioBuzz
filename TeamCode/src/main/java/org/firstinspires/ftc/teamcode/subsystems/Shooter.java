@@ -8,13 +8,10 @@ import com.qualcomm.robotcore.hardware.Servo;
 import com.qualcomm.robotcore.util.Range;
 
 import org.firstinspires.ftc.vision.apriltag.AprilTagDetection;
-import org.firstinspires.ftc.vision.apriltag.AprilTagSingleDetection;
-
-import java.util.List;
 
 /**
  * Class to control the shooter flywheel and hood for the BioBuzz season.
- * Integrates with Vision to adjust shot parameters based on distance to targets.
+ * Keeps manual hood control until distance-based settings are measured.
  */
 @SuppressWarnings("unused")
 public class Shooter {
@@ -23,41 +20,58 @@ public class Shooter {
     private final Servo hoodServo;
     private final Vision vision;
 
-    // Control constants
+    // Control constants - tune these on the robot before shooting
     public static double SHOOT_POWER = 0.9;
+    public static double HOOD_POSITION = 0.5;
     public static final double MAX_POWER = 1.0;
 
     public Shooter(HardwareMap hardwareMap, Vision vision) {
         this.flywheelMotor = hardwareMap.get(DcMotorEx.class, "flywheelMotor");
         this.hoodServo = hardwareMap.get(Servo.class, "hoodServo");
         this.vision = vision;
+        stop();
+        flywheelMotor.setMode(DcMotorEx.RunMode.RUN_WITHOUT_ENCODER);
+        flywheelMotor.setZeroPowerBehavior(DcMotorEx.ZeroPowerBehavior.FLOAT);
+        setHoodPosition(HOOD_POSITION);
     }
 
     /**
-     * Updates the shooter state, including automated hood adjustment based on AprilTag distance.
-     *
-     * @param targetId The ID of the AprilTag to track for distance estimation.
+     * Runs the flywheel while requested, otherwise stops it.
      */
-    public void update(int targetId) {
-        List<AprilTagDetection> detections = vision.getDetections();
-        AprilTagDetection target = findDetectionById(detections, targetId);
-
-        if (target != null && target.ftcPose != null) {
-            double range = target.ftcPose.range;
-
-            // Automated hood logic - finisher will need to calibrate this mapping
-            double calculatedHoodPos = calculateHoodPosition(range);
-            setHoodPosition(calculatedHoodPos);
+    public void update(boolean run) {
+        if (run) {
+            shoot();
+        } else {
+            stop();
         }
     }
 
     /**
-     * Calculates the required hood position for a given range to target.
-     * To be implemented with a lookup table or mathematical model by the finisher.
+     * Updates the hood when the requested AprilTag has a pose.
+     * Keeps the current hood position when no target is found.
+     *
+     * @param targetId The ID of the AprilTag to track.
      */
+    public void update(int targetId) {
+        updateHood(vision.getTag(targetId));
+    }
+
+    /**
+     * Updates the hood using the center of the named Cell cluster.
+     */
+    public void update(String clusterName) {
+        updateHood(vision.getCluster(clusterName));
+    }
+
+    private void updateHood(@Nullable AprilTagDetection target) {
+        if (target != null) {
+            setHoodPosition(calculateHoodPosition(target.ftcPose.range));
+        }
+    }
+
     private double calculateHoodPosition(double range) {
-        // TODO: Implement distance-to-hood mapping (e.g., linear interpolation or lookup table)
-        return 0.5;
+        // shortcut: distance settings are not measured, replace this return after calibration.
+        return hoodServo.getPosition();
     }
 
     /**
@@ -71,6 +85,7 @@ public class Shooter {
      * Sets the power of the flywheel motor.
      */
     public void setPower(double power) {
+        if (!Double.isFinite(power)) power = 0;
         flywheelMotor.setPower(Range.clip(power, -MAX_POWER, MAX_POWER));
     }
 
@@ -78,7 +93,15 @@ public class Shooter {
      * Sets the position of the hood servo.
      */
     public void setHoodPosition(double position) {
+        if (!Double.isFinite(position)) return;
         hoodServo.setPosition(Range.clip(position, 0.0, 1.0));
+    }
+
+    /**
+     * Returns the last commanded hood position.
+     */
+    public double getHoodPosition() {
+        return hoodServo.getPosition();
     }
 
     /**
@@ -86,19 +109,5 @@ public class Shooter {
      */
     public void stop() {
         flywheelMotor.setPower(0);
-    }
-
-    /**
-     * Helper to find a specific tag by ID in the list of detections.
-     */
-    private @Nullable AprilTagDetection findDetectionById(List<AprilTagDetection> detections, int id) {
-        for (AprilTagDetection detection : detections) {
-            if (detection instanceof AprilTagSingleDetection) {
-                if (((AprilTagSingleDetection) detection).id == id) {
-                    return detection;
-                }
-            }
-        }
-        return null;
     }
 }

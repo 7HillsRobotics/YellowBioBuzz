@@ -10,6 +10,7 @@ import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 
 import org.firstinspires.ftc.teamcode.Robot;
 import org.firstinspires.ftc.teamcode.sequences.DrivingSequences;
+import org.firstinspires.ftc.vision.apriltag.AprilTagClusterDetection;
 
 @SuppressWarnings("unused")
 public abstract class MainTeleop extends LinearOpMode {
@@ -28,6 +29,7 @@ public abstract class MainTeleop extends LinearOpMode {
     boolean fieldCentric  = true;
     boolean toggleControl = false;
     protected Pose2d targetPose = null;
+    protected String targetCluster;
     protected static final double STICK_DEADZONE = 0.05;
     protected abstract void setAlliance();
     protected abstract void setSequences();
@@ -37,58 +39,104 @@ public abstract class MainTeleop extends LinearOpMode {
     public void runOpMode() {
 
         robot = new Robot(hardwareMap);
-        percent = 0.6;
+        try {
+            percent = 0.6;
 
-        setAlliance();
-        setSequences();
+            setAlliance();
+            setSequences();
+            targetCluster = alliance.name() + " SCORING";
+            robot.vision.setProcessorsEnabled(true, true, alliance == Alliance.RED, alliance == Alliance.BLUE);
 
-        // Initialize pose from "start" location if provided
-        if (driveSequences != null) {
-            Pose2d startPose = driveSequences.getLocations().get("start");
-            if (startPose != null) {
-                robot.setPose(startPose);
+            // Initialize pose from "start" location if provided
+            if (driveSequences != null) {
+                Pose2d startPose = driveSequences.getLocations().get("start");
+                if (startPose != null) {
+                    robot.setPose(startPose);
+                }
             }
+
+            waitForStart();
+
+            while (opModeIsActive()) {
+                // Emergency stop
+                if (gamepad2.left_bumper && gamepad2.right_bumper) {
+                    currentAction = null;
+                    requestOpModeStop();
+                    break;
+                }
+
+                // Driver 1 auto-score trigger
+                if (gamepad1.a && currentAction == null) {
+                    currentAction = driveSequences.getActionTo("mainScorePos");
+                }
+
+                PoseVelocity2d velocity = robot.drivetrain.updatePose();
+
+                actionLoop();
+
+                if (currentAction == null) {
+                    driveLoop(velocity);
+                }
+                subsystemLoop();
+
+                // Telemetry
+                double heading = Math.toDegrees(robot.drivetrain.getPose().heading.toDouble());
+                telemetry.addData("Drive Mode", fieldCentric ? "Field-Centric" : "Robot-Centric");
+                telemetry.addData("Slow Mode",  percent < 1.0);
+                telemetry.addData("Heading",    heading);
+                telemetry.addData("Action Active", currentAction != null);
+
+                if (targetPose != null) {
+                    Pose2d current = robot.drivetrain.getPose();
+                    double dx = targetPose.position.x - current.position.x;
+                    double dy = targetPose.position.y - current.position.y;
+                    telemetry.addData("Pose hold error (in)", String.format("x=%.2f  y=%.2f", dx, dy));
+                }
+                telemetry.update();
+            }
+        } finally {
+            robot.stopAll();
+        }
+    }
+
+    /**
+     * Updates intake, shooter, and turret controls from gamepad 2.
+     */
+    public void subsystemLoop() {
+        robot.intake.update(gamepad2.right_trigger > 0.4, gamepad2.left_trigger > 0.4);
+        robot.shooter.update(gamepad2.a);
+
+        if (gamepad2.dpad_left) targetCluster = alliance.name() + " AUDIENCE";
+        if (gamepad2.dpad_right) targetCluster = alliance.name() + " SCORING";
+
+        if (gamepad2.left_bumper) {
+            robot.turret.update(targetCluster);
+            robot.shooter.update(targetCluster);
+        } else {
+            double turretPower = gamepad2.right_stick_x;
+            if (Math.abs(turretPower) < STICK_DEADZONE) turretPower = 0;
+            robot.turret.setPower(turretPower);
         }
 
-        waitForStart();
-
-        while (opModeIsActive()) {
-            // Driver 1 auto-score trigger
-            if (gamepad1.a && currentAction == null) {
-                currentAction = driveSequences.getActionTo("mainScorePos");
-            }
-
-            // Emergency stop
-            if (gamepad2.left_bumper && gamepad2.right_bumper) {
-                robot.stopAll();
-                currentAction = null;
-            }
-
-            PoseVelocity2d velocity = robot.drivetrain.updatePose();
-
-            actionLoop();
-
-            if (currentAction == null) {
-                driveLoop(velocity);
-            }
-
-            // Telemetry
-            double heading = Math.toDegrees(robot.drivetrain.getPose().heading.toDouble());
-            telemetry.addData("Drive Mode", fieldCentric ? "Field-Centric" : "Robot-Centric");
-            telemetry.addData("Slow Mode",  percent < 1.0);
-            telemetry.addData("Heading",    heading);
-            telemetry.addData("Action Active", currentAction != null);
-
-            if (targetPose != null) {
-                Pose2d current = robot.drivetrain.getPose();
-                double dx = targetPose.position.x - current.position.x;
-                double dy = targetPose.position.y - current.position.y;
-                telemetry.addData("Pose hold error (in)", String.format("x=%.2f  y=%.2f", dx, dy));
-            }
-
+        if (gamepad2.dpadUpWasPressed()) {
+            robot.shooter.setHoodPosition(robot.shooter.getHoodPosition() + 0.02);
+        }
+        if (gamepad2.dpadDownWasPressed()) {
+            robot.shooter.setHoodPosition(robot.shooter.getHoodPosition() - 0.02);
         }
 
-        robot.stopAll();
+        AprilTagClusterDetection target = robot.vision.getCluster(targetCluster);
+        telemetry.addData("Camera", robot.vision.getCameraState());
+        telemetry.addData("Target Cell", targetCluster);
+        telemetry.addData("Target Found", target != null);
+        if (target != null) {
+            telemetry.addData("Target Range (in)", target.ftcPose.range);
+            telemetry.addData("Target Bearing (deg)", target.ftcPose.bearing);
+        }
+        telemetry.addData("Hood Position", robot.shooter.getHoodPosition());
+        telemetry.addData("Pollen Blobs", robot.vision.getPollenBlobs().size());
+        telemetry.addData("Nectar Blobs", alliance == Alliance.RED ?
+                robot.vision.getRedNectarBlobs().size() : robot.vision.getBlueNectarBlobs().size());
     }
 
     public void driveLoop(PoseVelocity2d velocity) {
